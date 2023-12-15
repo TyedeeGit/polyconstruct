@@ -2,7 +2,6 @@ import math
 import copy
 
 
-
 class Unit:
     def __init__(self, name, dimension, symbol=None, equal_to=()):
         self.name = name
@@ -14,7 +13,7 @@ class Unit:
             self.symbol = name
 
     def __eq__(self, other):
-        return other in self.equal_to
+        return other in [m.unit for m in self.equal_to]
 
     def __repr__(self):
         return self.symbol
@@ -40,7 +39,7 @@ class Unit:
     def __truediv__(self, other):
         p = -1
         base_unit = Unit(other.name.split('*')[0], other.dimension.split('*')[0], other.symbol.split('*')[0])
-        if other == base_unit**(len(other.symbol.split('*'))):
+        if other is base_unit**(len(other.symbol.split('*'))):
             p = -len(other.symbol.split('*'))
         u = Unit(f'{self.name}*({base_unit.name}^{p})', f'{self.dimension}*({base_unit.dimension}^{p})', f'{self.symbol}*({base_unit.symbol}^{p})')
         u.equal_to.append(copy.deepcopy(u).__dict__)
@@ -51,6 +50,9 @@ class Unit:
         for _ in range(power-1):
             u *= self
         return u if power else 1
+
+    def add_equivalence(self, m):
+        self.equal_to.append(m)
 
 
 class Measure:
@@ -65,6 +67,8 @@ class Measure:
         return f'{self.value} {self.unit.symbol}'
 
     def __mul__(self, other):
+        if isinstance(other, float) or isinstance(other, int):
+            return Measure(self.unit, self.value*other)
         return Measure(self.unit*other.unit, self.value*other.value)
 
     def __truediv__(self, other):
@@ -72,12 +76,40 @@ class Measure:
             return Measure(self.unit/other, self.value)
         return Measure(self.unit/other.unit, self.value/other.value)
 
+    def convert(self, target_unit):
+        if target_unit is self.unit:
+            return self
+        for m in self.unit.equal_to:
+            if m.unit.name == target_unit.name:
+                return self.value * m.value * m.unit
+        raise ValueError("No unit conversion found.")
+
+    def __round__(self, n=None):
+        return Measure(self.unit, round(self.value, n))
+
+
+class DefinedUnit(Unit):
+    def __init__(self, name, *measures, symbol=None):
+        for m in measures:
+            m.unit.add_equivalence(Measure(self, 1/m.value))
+        super().__init__(name, measures[0].unit.dimension, symbol=symbol, equal_to=measures)
+
+
+# Angle units
+radian = Unit('radian', 'angle', symbol='rad')
+turn = DefinedUnit('turn', radian*math.tau, symbol='turn')
+degree = DefinedUnit('degree', turn*(1/360), radian*math.tau*(1/360), symbol='deg')
+
+# Base units
 meter = Unit('meter', 'length', symbol='m')
 second = Unit('second', 'time', symbol='s')
 kilogram = Unit('kilogram', 'mass', symbol='kg')
+
+# Derived metric units
 newton = kilogram*meter/(second**2)
 newton.name = 'Newton'
 newton.symbol = 'N'
+
 pascal = newton/(meter**2)
 pascal.name = 'Pascal'
 pascal.symbol = 'Pa'
@@ -96,6 +128,9 @@ class Vector:
 
     def __sub__(self, other):
         return self + -other
+
+    def __neg__(self):
+        return (-1)*self
 
     def __mul__(self, other):
         if isinstance(other, Vector):
@@ -120,7 +155,8 @@ def get_distance(pos1: Vector, pos2: Vector) -> float:
     """
     return abs(pos2-pos1)
 
-def get_angle(pos1: Vector, pos2: Vector, center: Vector = (0, 0), unit='rad') -> float:
+
+def get_angle(pos1: Vector, pos2: Vector, center: Vector = Vector(0, 0), unit=radian) -> float:
     """
     Gets the angle two points make when connected to a center point.
     Unit options are rad, deg, and turns.
@@ -134,14 +170,8 @@ def get_angle(pos1: Vector, pos2: Vector, center: Vector = (0, 0), unit='rad') -
     vector2 = pos2-center
     norm_prod = abs(vector1)*abs(vector2)
     dot_prod = vector1 * vector2
-    angle = math.acos(dot_prod/norm_prod)
-    match unit:
-        case 'rad':
-            return angle
-        case 'deg':
-            return math.degrees(angle)
-        case 'turns':
-            return angle/math.tau
+    angle = math.acos(dot_prod/norm_prod) * radian
+    return angle.convert(unit)
 
 
 class Condition:
@@ -170,6 +200,7 @@ class Condition:
             case '<':
                 return value < self.constant
 
+
 class Primitive(set):
     """
     Root of all geometric objects.
@@ -183,6 +214,7 @@ class Primitive(set):
 
     def __contains__(self, item):
         return self.in_set(item)
+
 
 class Region(Primitive):
     def __init__(self, c1: float, c2: float, c3: float, inequality: str):
@@ -206,6 +238,7 @@ class Region(Primitive):
     @classmethod
     def from_slope_intercept(cls, slope: float, intercept: float, inequality: str):
         return cls(slope, -1, intercept, inequality)
+
 
 class Line(Region):
     def __init__(self, c1: float, c2: float, c3: float):
@@ -231,6 +264,7 @@ class Line(Region):
             return self_c3/self_nonzero == other_c3/other_nonzero
         else:
             return self_c3/self_c1 == other_c3/other_c1 and self_c3/self_c2 == other_c3/other_c2 and self_c1/self_c2 == other_c1/other_c2
+
 
 class Segment(Line):
     def __init__(self, p1: Vector, p2: Vector):
@@ -283,6 +317,7 @@ class Segment(Line):
             condition_y1(point.y),
         ))
 
+
 class Ray(Line):
     def __init__(self, c1: float, c2: float, c3: float, direction: str = '+'):
         if direction not in {'+', '-'}:
@@ -298,8 +333,3 @@ class Ray(Line):
         return super().in_set(point) and point in self.dir_region
 
 
-segment = Segment(Vector(0, 0), Vector(8, 16))
-extended_segment = segment.extended()
-test_point = Vector(4, 8)
-print(f'Point {test_point} in segment: {test_point in segment}')
-print(f'Point {test_point} in extended segment: {test_point in extended_segment}')
