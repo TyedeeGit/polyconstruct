@@ -1,6 +1,6 @@
-from polymetric import *
+from metricutils import *
 
-"""
+__doc__ = """
 Implement physics engine.
 """
 
