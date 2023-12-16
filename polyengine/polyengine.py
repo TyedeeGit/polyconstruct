@@ -1,8 +1,21 @@
-from metricutils import *
+from .metricutils import *
+from .units import *
+from typing import List
 
 __doc__ = """
 Implement physics engine.
 """
+
+
+class Material:
+    def __init__(self, material_name: str, strength: Pressure):
+        """
+        A physical material.
+        :param material_name:
+        :param strength:
+        """
+        self.material_name = material_name
+        self.strength = strength
 
 
 class Joint:
@@ -12,7 +25,7 @@ class Joint:
         :param pos:
         """
         self.pos = pos
-        self.connections: list[Rod] = []
+        self.connections: List[Rod] = []
 
     def connect(self, rod):
         """
@@ -35,3 +48,6 @@ class Rod:
         j1.connect(self)
         j2.connect(self)
         self.length = get_distance(j1.pos, j2.pos)
+
+class Simulation:
+    pass
