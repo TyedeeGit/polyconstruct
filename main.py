@@ -6,8 +6,4 @@ __doc__ = """
 Implement pygame graphical interface.
 """
 
-m1 = 5 * psi
-print(m1)
-print(m1.convert(pascal))
-
 # Graphical interface code goes here
