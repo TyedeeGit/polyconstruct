@@ -1,6 +1,6 @@
 import math
 
-"""
+__doc__ = """
 Implements geometric primitives, vectors, and units.
 """
 

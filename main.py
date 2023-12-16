@@ -1,8 +1,6 @@
-import pygame
-from polymetric import *
-import polyengine
+from polyengine.metricutils import *
 
-"""
+__doc__ = """
 Implement pygame graphical interface.
 """
 
