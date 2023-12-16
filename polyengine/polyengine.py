@@ -1,8 +1,14 @@
-from metricutils import *
+from .metricutils import *
 
 __doc__ = """
 Implement physics engine.
 """
+
+
+class Material:
+    def __init__(self, material_name, strength):
+        self.material_name = material_name
+        self.strength = strength
 
 
 class Joint:
@@ -35,3 +41,6 @@ class Rod:
         j1.connect(self)
         j2.connect(self)
         self.length = get_distance(j1.pos, j2.pos)
+
+class Simulation:
+    pass

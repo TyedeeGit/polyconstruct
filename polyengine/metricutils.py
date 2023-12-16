@@ -4,6 +4,9 @@ __doc__ = """
 Implements geometric primitives, vectors, and units.
 """
 
+class UnitError(ValueError):
+    pass
+
 
 class Unit:
     def __init__(self, name, dimension, symbol=None, equal_to=()):
@@ -24,10 +27,17 @@ class Unit:
             self.symbol = name
 
     def __eq__(self, other):
-        return other in [m.unit for m in self.equal_to]
+        if isinstance(other, Measure):
+            return other in self.equal_to
+        if self.symbol == other.symbol:
+            return True
+        for m in self.equal_to:
+            if m.unit is other and m.value == 1:
+                return True
+        return False
 
     def __repr__(self):
-        return self.symbol
+        return f'<Unit[\'{self.name}\', {self.dimension}, \'{self.symbol}\']>'
 
     def __mul__(self, other):
         """
@@ -37,10 +47,12 @@ class Unit:
         """
         if isinstance(other, float) or isinstance(other, int):
             return other*self
+
+        # Check if other is a power
         p = 1
         base_unit = Unit(other.name.split('*')[0], other.dimension.split('*')[0], other.symbol.split('*')[0])
         if other is base_unit ** (len(other.symbol.split('*'))):
-            p = -len(other.symbol.split('*'))
+            p = len(other.symbol.split('*'))
         if p == 1 or p == -1:
             p = ''
         else:
@@ -58,11 +70,24 @@ class Unit:
         :return:
         """
         p = -1
+        n1 = other.name
+        n2 = other.dimension
+        n3 = other.symbol
         base_unit = Unit(other.name.split('*')[0], other.dimension.split('*')[0], other.symbol.split('*')[0])
+        base_unit_pow = Unit(other.name.split('^')[0], other.dimension.split('^')[0], other.symbol.split('^')[0])
         # Check for repeated multiplication and simplify to an exponent
         if other is base_unit**(len(other.symbol.split('*'))):
             p = -len(other.symbol.split('*'))
-        u = Unit(f'{self.name}*({base_unit.name}^{p})', f'{self.dimension}*({base_unit.dimension}^{p})', f'{self.symbol}*({base_unit.symbol}^{p})')
+            n1 = f'{base_unit.name}^{p}'
+            n2 = f'{base_unit.dimension}^{p}'
+            n3 = f'{base_unit.symbol}^{p}'
+        if len(other.name.split("^")) > 1:
+            if other.name == f'{base_unit_pow.name}^{int(other.name.split("^")[1])}':
+                p = -int(other.name.split('^')[1])
+                n1 = f'{base_unit_pow.name}^{p}'
+                n2 = f'{base_unit_pow.dimension}^{p}'
+                n3 = f'{base_unit_pow.symbol}^{p}'
+        u = Unit(f'{self.name}*({n1})', f'{self.dimension}*({n2})', f'{self.symbol}*({n3})')
         return u
 
     def __pow__(self, power):
@@ -74,6 +99,10 @@ class Unit:
         u = self
         for _ in range(power-1):
             u *= self
+        p = f'^{power}' if power != 1 else ''
+        u.name = f'{self.name}{p}'
+        u.dimension = f'{self.dimension}{p}'
+        u.symbol = f'{self.symbol}{p}'
         return u if power else 1
 
     def add_equivalence(self, m):
@@ -99,7 +128,10 @@ class Measure:
         return self.unit == other.unit and self.value == other.value
 
     def __repr__(self):
-        return f'{self.value} {self.unit.symbol}'
+        return f'<Measure[{self.value} {self.unit.symbol}]>'
+
+    def __add__(self, other):
+        pass
 
     def __mul__(self, other):
         """
@@ -109,7 +141,22 @@ class Measure:
         """
         if isinstance(other, float) or isinstance(other, int):
             return Measure(self.unit, self.value*other)
+        if isinstance(other, Unit):
+            return Measure(self.unit*other, self.value)
         return Measure(self.unit*other.unit, self.value*other.value)
+
+    def __pow__(self, power):
+        """
+        Raises a measure to a power.
+        :param power:
+        :return:
+        """
+        if not isinstance(power, int):
+            return ValueError("Units can only be raised to integer powers!")
+        m = self
+        for _ in range(power - 1):
+            m *= self
+        return m if power else 1
 
     def __truediv__(self, other):
         """
@@ -117,8 +164,14 @@ class Measure:
         :param other:
         :return:
         """
+        if isinstance(other, int) or isinstance(other, float):
+            return Measure(self.unit, self.value/other)
         if isinstance(other, Unit):
             return Measure(self.unit/other, self.value)
+        if other.unit.dimension == self.unit.dimension:
+            for m in other.unit.equal_to:
+                if m.unit is self.unit:
+                    return (self.value/other.value)*m.value
         return Measure(self.unit/other.unit, self.value/other.value)
 
     def convert(self, target_unit):
@@ -127,12 +180,14 @@ class Measure:
         :param target_unit:
         :return:
         """
+        if target_unit.dimension != self.unit.dimension:
+            raise UnitError(f"Expected target unit with dimension of {self.unit.dimension}, got unit with dimension of {target_unit.dimension}.")
         if target_unit is self.unit:
             return self
         for m in self.unit.equal_to:
             if m.unit.name == target_unit.name:
                 return self.value * m.value * m.unit
-        raise ValueError("No unit conversion found.")
+        raise UnitError("No unit conversion found.")
 
     def __round__(self, n=None):
         """
@@ -156,25 +211,28 @@ class DefinedUnit(Unit):
             m.unit.add_equivalence(Measure(self, 1/m.value))
         super().__init__(name, measures[0].unit.dimension, symbol=symbol, equal_to=measures)
 
+    def __mul__(self, other):
+        u = super().__mul__(other)
+        if isinstance(other, int) or isinstance(other, float):
+            return u
+        for m1 in self.equal_to:
+            for m2 in other.equal_to:
+                if not (isinstance(m1.unit, DefinedUnit) or isinstance(m2.unit, DefinedUnit)):
+                    u.add_equivalence(m1*m2)
+        return u
+
+    def __pow__(self, power):
+        u = super().__pow__(power)
+        for m in self.equal_to:
+            if m.unit != self:
+                u.add_equivalence(m**power)
+        return u
+
 
 # Angle units
 radian = Unit('radian', 'angle', symbol='rad')
 turn = DefinedUnit('turn', radian*math.tau, symbol='turn')
 degree = DefinedUnit('degree', turn*(1/360), radian*math.tau*(1/360), symbol='deg')
-
-# Base units
-meter = Unit('meter', 'length', symbol='m')
-second = Unit('second', 'time', symbol='s')
-kilogram = Unit('kilogram', 'mass', symbol='kg')
-
-# Derived metric units
-newton = kilogram*meter/(second**2)
-newton.name = 'Newton'
-newton.symbol = 'N'
-
-pascal = newton/(meter**2)
-pascal.name = 'Pascal'
-pascal.symbol = 'Pa'
 
 
 class Vector2:
