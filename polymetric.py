@@ -1,5 +1,4 @@
 import math
-import copy
 
 """
 Implements geometric primitives, vectors, and units.
@@ -18,6 +17,7 @@ class Unit:
         self.name = name
         self.dimension = dimension
         self.equal_to = list(equal_to)
+        self.add_equivalence(1*self)
         if symbol is not None:
             self.symbol = symbol
         else:
@@ -30,33 +30,47 @@ class Unit:
         return self.symbol
 
     def __mul__(self, other):
+        """
+        Creates a product unit from two other units or a measure from a value and unit(ex: watt*hour -> watt-hour).
+        :param other:
+        :return:
+        """
         if isinstance(other, float) or isinstance(other, int):
             return other*self
         p = 1
         base_unit = Unit(other.name.split('*')[0], other.dimension.split('*')[0], other.symbol.split('*')[0])
-        if other == base_unit ** (len(other.symbol.split('*'))):
+        if other is base_unit ** (len(other.symbol.split('*'))):
             p = -len(other.symbol.split('*'))
         if p == 1 or p == -1:
             p = ''
         else:
             p = f'^{p}'
         u = Unit(f'{self.name}*{base_unit.name}{p}', f'{self.dimension}*{base_unit.dimension}{p}', f'{self.symbol}*{base_unit.symbol}{p}')
-        u.equal_to.append(copy.deepcopy(u).__dict__)
         return u
 
     def __rmul__(self, other):
         return Measure(self, other)
 
     def __truediv__(self, other):
+        """
+        Creates a rate unit from two other units(ex: meter/second -> m/s).
+        :param other:
+        :return:
+        """
         p = -1
         base_unit = Unit(other.name.split('*')[0], other.dimension.split('*')[0], other.symbol.split('*')[0])
+        # Check for repeated multiplication and simplify to an exponent
         if other is base_unit**(len(other.symbol.split('*'))):
             p = -len(other.symbol.split('*'))
         u = Unit(f'{self.name}*({base_unit.name}^{p})', f'{self.dimension}*({base_unit.dimension}^{p})', f'{self.symbol}*({base_unit.symbol}^{p})')
-        u.equal_to.append(copy.deepcopy(u).__dict__)
         return u
 
     def __pow__(self, power):
+        """
+        Raises a unit to a power(ex: meter^2 -> m^2).
+        :param power:
+        :return:
+        """
         u = self
         for _ in range(power-1):
             u *= self
@@ -88,18 +102,28 @@ class Measure:
         return f'{self.value} {self.unit.symbol}'
 
     def __mul__(self, other):
+        """
+        Multiplies two measures to create a new measure with product units, or scale an existing measurement by a number(ex: 5m * 10m -> 50m^2, 3 * 4m -> 12m).
+        :param other:
+        :return:
+        """
         if isinstance(other, float) or isinstance(other, int):
             return Measure(self.unit, self.value*other)
         return Measure(self.unit*other.unit, self.value*other.value)
 
     def __truediv__(self, other):
+        """
+        Divides two measures to create a new measure with rate units, or divide an existing measurement by a number(ex: 20m/5s -> 4m/s, 15ft/3 -> 5ft).
+        :param other:
+        :return:
+        """
         if isinstance(other, Unit):
             return Measure(self.unit/other, self.value)
         return Measure(self.unit/other.unit, self.value/other.value)
 
     def convert(self, target_unit):
         """
-        Converts the measure into another unit. The target unit must have the same dimensions.
+        Converts the measure into another unit(ex: 3kg -> 3000g, 24in -> 2ft). The target unit must have the same dimensions.
         :param target_unit:
         :return:
         """
@@ -111,6 +135,11 @@ class Measure:
         raise ValueError("No unit conversion found.")
 
     def __round__(self, n=None):
+        """
+        Rounds the value of the measurement to n digits.
+        :param n:
+        :return:
+        """
         return Measure(self.unit, round(self.value, n))
 
 
@@ -122,6 +151,7 @@ class DefinedUnit(Unit):
         :param measures:
         :param symbol:
         """
+        # Add equivalences for easy conversion
         for m in measures:
             m.unit.add_equivalence(Measure(self, 1/m.value))
         super().__init__(name, measures[0].unit.dimension, symbol=symbol, equal_to=measures)
@@ -161,15 +191,34 @@ class Vector2:
         return f'Vector2[{self.x}, {self.y}]'
 
     def __add__(self, other):
+        """
+        Add two vectors component-wise.
+        :param other:
+        :return:
+        """
         return Vector2(self.x + other.x, self.y + other.y)
 
     def __sub__(self, other):
+        """
+        Subtract two vectors component-wise.
+        :param other:
+        :return:
+        """
         return self + -other
 
     def __neg__(self):
+        """
+        Scale a vector by -1.
+        :return:
+        """
         return (-1)*self
 
     def __mul__(self, other):
+        """
+        Scale a vector component-wise, or take the dot product of two vectors.
+        :param other:
+        :return:
+        """
         if isinstance(other, Vector2):
             return self.x * other.x + self.y * other.y
         if isinstance(other, float) or isinstance(other, int):
@@ -180,6 +229,10 @@ class Vector2:
         return self * other
 
     def __abs__(self):
+        """
+        Take the norm of a vector.
+        :return:
+        """
         return math.sqrt(self * self)
 
 
@@ -215,7 +268,7 @@ class Condition:
     def __init__(self, constant: float, inequality: str):
         """
         Wraps an inequality.
-        Inequality can be ==, >, >=, <=, <
+        Inequality can be ==, >, >=, <=, <.
         :param constant:
         :param inequality:
         """
@@ -275,11 +328,23 @@ class Region(Primitive):
         super().__init__()
 
     def in_set(self, point: Vector2) -> bool:
+        """
+        Checks if a point is in the defined region or set.
+        :param point:
+        :return:
+        """
         c1, c2, c0 = self.coefficients
         return self.condition(c1 * point.x + c2 * point.y + c0)
 
     @classmethod
     def from_slope_intercept(cls, slope: float, intercept: float, inequality: str):
+        """
+        Constructs the defining line from slope-intercept form.
+        :param slope:
+        :param intercept:
+        :param inequality:
+        :return:
+        """
         return cls(slope, -1, intercept, inequality)
 
 
@@ -294,6 +359,7 @@ class Line(Region):
         super().__init__(c1, c2, c3, '==')
 
     def __eq__(self, other) -> bool:
+        # Unpack coefficients
         self_c1, self_c2, self_c3 = self.coefficients
         other_c1, other_c2, other_c3 = other.coefficients
         # Test if coefficients are both zero or non-zero
@@ -342,6 +408,7 @@ class Segment(Line):
 
     def in_set(self, point: Vector2) -> bool:
         inequalities: tuple[tuple[str, str], tuple[str, str]] = ((), ())
+        # Ensures the inequalities are in the right order, in case the points were given in the wrong order
         match [self.p2.x > self.p1.x, self.p2.y > self.p1.y]:
             case [True, True]:
                 inequalities = (('>=', '<='), ('>=', '<='))
@@ -351,6 +418,7 @@ class Segment(Line):
                 inequalities = (('<=', '>='), ('>=', '<='))
             case [False, False]:
                 inequalities = (('<=', '>='), ('<=', '>='))
+        # Conditions check if the point is within a bounding box formed by the segment endpoints, but the inequalities must match the order of the endpoints
         condition_x0 = Condition(self.p1.x, inequalities[0][0])
         condition_y0 = Condition(self.p1.y, inequalities[1][0])
         condition_x1 = Condition(self.p2.x, inequalities[0][1])
@@ -384,5 +452,3 @@ class Ray(Line):
 
     def in_set(self, point: Vector2) -> bool:
         return super().in_set(point) and point in self.dir_region
-
-
