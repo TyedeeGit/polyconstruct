@@ -1,9 +1,20 @@
 import math
 import copy
 
+"""
+Implements geometric primitives, vectors, and units.
+"""
+
 
 class Unit:
     def __init__(self, name, dimension, symbol=None, equal_to=()):
+        """
+        A unit of measurement(ex: foot, meter, inch, psi, Celsius).
+        :param name:
+        :param dimension:
+        :param symbol:
+        :param equal_to:
+        """
         self.name = name
         self.dimension = dimension
         self.equal_to = list(equal_to)
@@ -52,11 +63,21 @@ class Unit:
         return u if power else 1
 
     def add_equivalence(self, m):
+        """
+        Adds an equivalent measure to relate this unit to other units.
+        :param m:
+        :return:
+        """
         self.equal_to.append(m)
 
 
 class Measure:
     def __init__(self, unit, value):
+        """
+        A physical measurement, expressed in a unit(ex: 20 feet, 14 meters, 8 Newtons).
+        :param unit:
+        :param value:
+        """
         self.unit = unit
         self.value = value
 
@@ -77,6 +98,11 @@ class Measure:
         return Measure(self.unit/other.unit, self.value/other.value)
 
     def convert(self, target_unit):
+        """
+        Converts the measure into another unit. The target unit must have the same dimensions.
+        :param target_unit:
+        :return:
+        """
         if target_unit is self.unit:
             return self
         for m in self.unit.equal_to:
@@ -90,6 +116,12 @@ class Measure:
 
 class DefinedUnit(Unit):
     def __init__(self, name, *measures, symbol=None):
+        """
+        A unit defined in terms of another unit(ex: foot = 0.3048 * meter).
+        :param name:
+        :param measures:
+        :param symbol:
+        """
         for m in measures:
             m.unit.add_equivalence(Measure(self, 1/m.value))
         super().__init__(name, measures[0].unit.dimension, symbol=symbol, equal_to=measures)
@@ -115,16 +147,21 @@ pascal.name = 'Pascal'
 pascal.symbol = 'Pa'
 
 
-class Vector:
+class Vector2:
     def __init__(self, x, y):
+        """
+        A 2D vector.
+        :param x:
+        :param y:
+        """
         self.x = x
         self.y = y
 
     def __repr__(self):
-        return f'Vector[{self.x}, {self.y}]'
+        return f'Vector2[{self.x}, {self.y}]'
 
     def __add__(self, other):
-        return Vector(self.x + other.x, self.y + other.y)
+        return Vector2(self.x + other.x, self.y + other.y)
 
     def __sub__(self, other):
         return self + -other
@@ -133,10 +170,10 @@ class Vector:
         return (-1)*self
 
     def __mul__(self, other):
-        if isinstance(other, Vector):
+        if isinstance(other, Vector2):
             return self.x * other.x + self.y * other.y
         if isinstance(other, float) or isinstance(other, int):
-            return Vector(self.x * other, self.y * other)
+            return Vector2(self.x * other, self.y * other)
         raise TypeError(f'Multiplication not supported for {other}.')
 
     def __rmul__(self, other):
@@ -146,7 +183,7 @@ class Vector:
         return math.sqrt(self * self)
 
 
-def get_distance(pos1: Vector, pos2: Vector) -> float:
+def get_distance(pos1: Vector2, pos2: Vector2) -> float:
     """
     Gets the distance between two points.
     :param pos1:
@@ -156,7 +193,7 @@ def get_distance(pos1: Vector, pos2: Vector) -> float:
     return abs(pos2-pos1)
 
 
-def get_angle(pos1: Vector, pos2: Vector, center: Vector = Vector(0, 0), unit=radian) -> float:
+def get_angle(pos1: Vector2, pos2: Vector2, center: Vector2 = Vector2(0, 0), unit=radian) -> float:
     """
     Gets the angle two points make when connected to a center point.
     Unit options are rad, deg, and turns.
@@ -177,7 +214,8 @@ def get_angle(pos1: Vector, pos2: Vector, center: Vector = Vector(0, 0), unit=ra
 class Condition:
     def __init__(self, constant: float, inequality: str):
         """
-        An inequality wrapper.
+        Wraps an inequality.
+        Inequality can be ==, >, >=, <=, <
         :param constant:
         :param inequality:
         """
@@ -188,6 +226,11 @@ class Condition:
         self.strict = '=' in inequality
 
     def __call__(self, value: float) -> bool:
+        """
+        Tests if a value satisfies the inequality.
+        :param value:
+        :return:
+        """
         match self.inequality:
             case '==':
                 return value == self.constant
@@ -205,7 +248,7 @@ class Primitive(set):
     """
     Root of all geometric objects.
     """
-    def in_set(self, point: Vector) -> bool:
+    def in_set(self, point: Vector2) -> bool:
         """
         Returns true if point is inside primitive.
         :return:
@@ -231,7 +274,7 @@ class Region(Primitive):
         self.condition = Condition(0, inequality)
         super().__init__()
 
-    def in_set(self, point: Vector) -> bool:
+    def in_set(self, point: Vector2) -> bool:
         c1, c2, c0 = self.coefficients
         return self.condition(c1 * point.x + c2 * point.y + c0)
 
@@ -253,12 +296,14 @@ class Line(Region):
     def __eq__(self, other) -> bool:
         self_c1, self_c2, self_c3 = self.coefficients
         other_c1, other_c2, other_c3 = other.coefficients
+        # Test if coefficients are both zero or non-zero
         if not all((
                 (self_c1 and other_c1 or self_c1 == other_c1 == 0),
                 (self_c2 and other_c2 or self_c2 == other_c2 == 0),
                 (self_c3 and other_c3 or self_c3 == other_c3 == 0),
         )):
             return False
+        # Test if the ratios of the coefficients are the same
         elif 0 in {self_c1, self_c2}:
             self_nonzero, other_nonzero = (self_c1, other_c1) if self_c1 else (self_c2, other_c2)
             return self_c3/self_nonzero == other_c3/other_nonzero
@@ -267,7 +312,7 @@ class Line(Region):
 
 
 class Segment(Line):
-    def __init__(self, p1: Vector, p2: Vector):
+    def __init__(self, p1: Vector2, p2: Vector2):
         """
         A line segment between two points.
         :param p1:
@@ -277,6 +322,7 @@ class Segment(Line):
             raise ValueError('Segment must consist of distinct points.')
         x0, y0 = p1.x, p1.y
         x1, y1 = p2.x, p2.y
+        # Calculate coefficients
         c1 = y1-y0
         c2 = x0-x1
         c3 = y0*x1+x1*y1-x0*y1-y1*x1
@@ -294,7 +340,7 @@ class Segment(Line):
         """
         return Line(*self.coefficients)
 
-    def in_set(self, point: Vector) -> bool:
+    def in_set(self, point: Vector2) -> bool:
         inequalities: tuple[tuple[str, str], tuple[str, str]] = ((), ())
         match [self.p2.x > self.p1.x, self.p2.y > self.p1.y]:
             case [True, True]:
@@ -320,6 +366,13 @@ class Segment(Line):
 
 class Ray(Line):
     def __init__(self, c1: float, c2: float, c3: float, direction: str = '+'):
+        """
+        A directed line.
+        :param c1:
+        :param c2:
+        :param c3:
+        :param direction:
+        """
         if direction not in {'+', '-'}:
             raise ValueError("Invalid ray direction. Options are '+' or '-'")
         self.direction = direction
@@ -329,7 +382,7 @@ class Ray(Line):
     def __eq__(self, other) -> bool:
         return super().__eq__(other) and self.direction == other.direction
 
-    def in_set(self, point: Vector) -> bool:
+    def in_set(self, point: Vector2) -> bool:
         return super().in_set(point) and point in self.dir_region
 
 
