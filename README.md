@@ -1,2 +1,2 @@
 # Polyconstruct
-A python-based physics simulation project.
+A Python-based physics simulation project.
