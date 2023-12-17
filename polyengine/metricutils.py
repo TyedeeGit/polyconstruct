@@ -1,9 +1,12 @@
 import math
-from typing import Optional, Union, Generic, TypeVar, Type
+from typing import Optional, Union, Generic, TypeVar, Type, Sequence
 
 __doc__ = """
 Implements geometric primitives, vectors, and units.
 """
+
+def zip_index(obj: Sequence):
+    return zip(obj, range(len(obj)))
 
 class UnitError(ValueError):
     pass
@@ -30,6 +33,8 @@ class Unit:
     def __eq__(self, other):
         if isinstance(other, Measure):
             return other in self.equal_to
+        if not isinstance(other, Unit):
+            return False
         if self.symbol == other.symbol:
             return True
         for m in self.equal_to:
@@ -47,19 +52,10 @@ class Unit:
         :return:
         """
         if isinstance(other, float) or isinstance(other, int):
-            return other*self
-
-        # Check if other is a power
-        p = 1
-        base_unit = Unit(other.name.split('*')[0], other.dimension.split('*')[0], other.symbol.split('*')[0])
-        if other is base_unit ** (len(other.symbol.split('*'))):
-            p = len(other.symbol.split('*'))
-        if p == 1 or p == -1:
-            p = ''
-        else:
-            p = f'^{p}'
-        u = Unit(f'{self.name}*{base_unit.name}{p}', f'{self.dimension}*{base_unit.dimension}{p}', f'{self.symbol}*{base_unit.symbol}{p}')
-        return u
+            return Measure(self, other)
+        if other == self:
+            return UnitPower(self, 2)
+        return UnitProduct(self, other)
 
     def __rmul__(self, other):
         return Measure(self, other)
@@ -70,25 +66,7 @@ class Unit:
         :param other:
         :return:
         """
-        n1 = other.name
-        n2 = other.dimension
-        n3 = other.symbol
-        base_unit = Unit(other.name.split('*')[0], other.dimension.split('*')[0], other.symbol.split('*')[0])
-        base_unit_pow = Unit(other.name.split('^')[0], other.dimension.split('^')[0], other.symbol.split('^')[0])
-        # Check for repeated multiplication and simplify to an exponent
-        if other is base_unit**(len(other.symbol.split('*'))):
-            p = -len(other.symbol.split('*'))
-            n1 = f'{base_unit.name}^{p}'
-            n2 = f'{base_unit.dimension}^{p}'
-            n3 = f'{base_unit.symbol}^{p}'
-        if len(other.name.split("^")) > 1:
-            if other.name == f'{base_unit_pow.name}^{int(other.name.split("^")[1])}':
-                p = -int(other.name.split('^')[1])
-                n1 = f'{base_unit_pow.name}^{p}'
-                n2 = f'{base_unit_pow.dimension}^{p}'
-                n3 = f'{base_unit_pow.symbol}^{p}'
-        u = Unit(f'{self.name}*({n1})', f'{self.dimension}*({n2})', f'{self.symbol}*({n3})')
-        return u
+        return self*other**-1
 
     def __pow__(self, power):
         """
@@ -96,14 +74,7 @@ class Unit:
         :param power:
         :return:
         """
-        u = self
-        for _ in range(power-1):
-            u *= self
-        p = f'^{power}' if power != 1 else ''
-        u.name = f'{self.name}{p}'
-        u.dimension = f'{self.dimension}{p}'
-        u.symbol = f'{self.symbol}{p}'
-        return u if power else 1
+        return UnitPower(self, power)
 
     def add_equivalence(self, m):
         """
@@ -112,6 +83,99 @@ class Unit:
         :return:
         """
         self.equal_to.append(m)
+
+class UnitPower(Unit):
+    def __init__(self, unit: Unit, power: int):
+        """
+        A unit raised to an integer power(ex: m^2).
+        :param unit:
+        :param power:
+        """
+        self.power = power
+        self.base_unit = unit
+        # Simplify base units that are powers themselves
+        if isinstance(unit, UnitPower):
+            self.base_unit = unit.base_unit
+            self.power = power * unit.power
+        super().__init__(f'{self.base_unit.name}^{self.power}', f'{self.base_unit.dimension}^{self.power}', symbol=f'{self.base_unit.symbol}^{self.power}')
+
+    def __repr__(self):
+        return f'{self.base_unit}^{self.power}'
+
+    def __eq__(self, other):
+        if other == self.base_unit and self.power == 1:
+            return True
+        if not isinstance(other, UnitPower):
+            return False
+        return self.base_unit == other.base_unit and self.power == other.power
+
+    def __mul__(self, other):
+        if isinstance(other, UnitPower):
+            if self.base_unit is other.base_unit:
+                if self.power == -other.power:
+                    return 1
+                if self.power+other.power == 1:
+                    return self.base_unit
+                return UnitPower(self.base_unit, self.power+other.power)
+        if isinstance(other, Unit):
+            if self.base_unit is other:
+                return UnitPower(self.base_unit, self.power+1)
+        return super().__mul__(other)
+
+class UnitProduct(Unit):
+    def __init__(self, *units: Unit):
+        """
+        A product of units(ex: Joule-second).
+        :param units:
+        """
+        self.factors = list(units)
+
+        # Decompose any factors that might be themselves products
+        for u in self.factors:
+            if isinstance(u, UnitProduct):
+                self.factors.remove(u)
+                for b in u.factors:
+                    self.factors.append(b)
+
+        # Simplify powers of the same unit
+        powers = []
+        for u, i in zip_index(self.factors):
+            if isinstance(u, UnitPower):
+                powers.append((u, i))
+        removed = 0
+        for p, i in powers:
+            for q, j in powers:
+                if p.base_unit == q.base_unit and i != j:
+                    if p in self.factors:
+                        self.factors.remove(p)
+                        removed += 1
+                        self.factors[j - removed] *= p
+
+        # Simplify factors multiplied with powers
+        for u in self.factors:
+            for p, i in powers:
+                if p.base_unit == u:
+                    self.factors.remove(u)
+                    self.factors[i] *= u
+
+        # Remove dimensionless factors
+        for u, i in zip_index(self.factors):
+            if isinstance(u, int) or isinstance(u, float):
+                del self.factors[i]
+
+        # Generate names, dimensions, and symbols
+        names = [u.name for u in self.factors]
+        dims = [u.dimension for u in self.factors]
+        symbols = [u.symbol for u in self.factors]
+        super().__init__('*'.join(names), '*'.join(dims), symbol='*'.join(symbols))
+
+    def __repr__(self):
+        return '*'.join([repr(u) for u in self.factors])
+
+    def __eq__(self, other):
+        if not isinstance(other, UnitProduct):
+            return False
+        return all(s == o for s, o in zip(self.factors, other.factors))
 
 
 class Measure[V: float, U: Unit]:
@@ -153,6 +217,9 @@ class Measure[V: float, U: Unit]:
             return Measure(self.unit*other, self.value)
         return Measure(self.unit*other.unit, self.value*other.value)
 
+    def __rmul__(self, other):
+        return self * other
+
     def __pow__(self, power):
         """
         Raises a measure to a power.
@@ -161,10 +228,7 @@ class Measure[V: float, U: Unit]:
         """
         if not isinstance(power, int):
             return ValueError("Units can only be raised to integer powers!")
-        m = self
-        for _ in range(power - 1):
-            m *= self
-        return m if power else 1
+        return Measure(self.unit**power, self.value**power)
 
     def __truediv__(self, other):
         """
@@ -222,23 +286,6 @@ class DefinedUnit(Unit):
             m.unit.add_equivalence(Measure(self, 1/m.value))
         super().__init__(name, measures[0].unit.dimension, symbol=symbol, equal_to=measures)
 
-    def __mul__(self, other):
-        u = super().__mul__(other)
-        if isinstance(other, int) or isinstance(other, float):
-            return u
-        for m1 in self.equal_to:
-            for m2 in other.equal_to:
-                if not (isinstance(m1.unit, DefinedUnit) or isinstance(m2.unit, DefinedUnit)):
-                    u.add_equivalence(m1*m2)
-        return u
-
-    def __pow__(self, power):
-        u = super().__pow__(power)
-        for m in self.equal_to:
-            if m.unit != self:
-                u.add_equivalence(m**power)
-        return u
-
 # Unit typing
 T = TypeVar('T', bound=Union[Unit, Measure])
 Dimension = Generic[T]
@@ -249,6 +296,9 @@ Mass: Type[T] = Dimension
 Angle: Type[T] = Dimension
 
 Area: Type[T] = Dimension
+Volume: Type[T] = Dimension
+Density: Type[T] = Dimension
+Speed: Type[T] = Dimension
 Acceleration: Type[T] = Dimension
 Force: Type[T] = Dimension
 Pressure: Type[T] = Dimension
@@ -312,6 +362,9 @@ class Vector2:
     def __rmul__(self, other):
         return self * other
 
+    def __truediv__(self, other):
+        return self.x / other, self.y / other
+
     def __abs__(self):
         """
         Take the norm of a vector.
@@ -322,6 +375,37 @@ class Vector2:
     def to_tuple(self):
         return self.x, self.y
 
+class PhysicalVector2[T](Vector2):
+    def __init__(self, x: float, y: float, unit: Unit):
+        """
+        A physical 2D vector.
+        :param x:
+        :param y:
+        :param unit:
+        """
+        super().__init__(x, y)
+        self.unit = unit
+
+    def __add__(self, other):
+        return PhysicalVector2(self.x + other.convert(self.unit).x, self.y + other.convert(self.unit).y, self.unit)
+
+    def __mul__(self, other):
+        if isinstance(other, PhysicalVector2):
+            return super().__mul__(other.convert(self.unit))
+        return super().__mul__(other)
+
+    def __abs__(self) -> Length:
+        return super().__abs__()*self.unit
+
+    def convert(self, target_unit: Unit):
+        return PhysicalVector2((self.x*self.unit).convert_value(target_unit), (self.y*self.unit).convert_value(target_unit), target_unit)
+
+# Vector typing
+Displacement: Type[T] = PhysicalVector2[Length]
+Velocity: Type[T] = PhysicalVector2[Speed]
+AccelerationVector: Type[T] = PhysicalVector2[Acceleration]
+ForceVector: Type[T] = PhysicalVector2[Force]
+StressVector: Type[T] = PhysicalVector2[Pressure]
 
 def get_distance(pos1: Vector2, pos2: Vector2) -> float:
     """
