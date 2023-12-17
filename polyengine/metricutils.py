@@ -5,310 +5,13 @@ __doc__ = """
 Implements geometric primitives, vectors, and units.
 """
 
-def zip_index(obj: Sequence):
+def zip_indices(obj: Sequence):
+    """
+    Zip a sequence with its indices.
+    :param obj:
+    :return:
+    """
     return zip(obj, range(len(obj)))
-
-class UnitError(ValueError):
-    pass
-
-
-class Unit:
-    def __init__(self, name: str, dimension: str, symbol: Optional[str] = None, equal_to=()):
-        """
-        A unit of measurement(ex: foot, meter, inch, psi, Celsius).
-        :param name:
-        :param dimension:
-        :param symbol:
-        :param equal_to:
-        """
-        self.name = name
-        self.dimension = dimension
-        self.equal_to = list(equal_to)
-        self.add_equivalence(1*self)
-        if symbol is not None:
-            self.symbol = symbol
-        else:
-            self.symbol = name
-
-    def __eq__(self, other):
-        if isinstance(other, Measure):
-            return other in self.equal_to
-        if not isinstance(other, Unit):
-            return False
-        if self.symbol == other.symbol:
-            return True
-        for m in self.equal_to:
-            if m.unit is other and m.value == 1:
-                return True
-        return False
-
-    def __repr__(self):
-        return f'<Unit[\'{self.name}\', {self.dimension}, \'{self.symbol}\']>'
-
-    def __mul__(self, other):
-        """
-        Creates a product unit from two other units or a measure from a value and unit(ex: watt*hour -> watt-hour).
-        :param other:
-        :return:
-        """
-        if isinstance(other, float) or isinstance(other, int):
-            return Measure(self, other)
-        if other == self:
-            return UnitPower(self, 2)
-        return UnitProduct(self, other)
-
-    def __rmul__(self, other):
-        return Measure(self, other)
-
-    def __truediv__(self, other):
-        """
-        Creates a rate unit from two other units(ex: meter/second -> m/s).
-        :param other:
-        :return:
-        """
-        return self*other**-1
-
-    def __pow__(self, power):
-        """
-        Raises a unit to a power(ex: meter^2 -> m^2).
-        :param power:
-        :return:
-        """
-        return UnitPower(self, power)
-
-    def add_equivalence(self, m):
-        """
-        Adds an equivalent measure to relate this unit to other units.
-        :param m:
-        :return:
-        """
-        self.equal_to.append(m)
-
-class UnitPower(Unit):
-    def __init__(self, unit: Unit, power: int):
-        """
-        A unit raised to an integer power(ex: m^2).
-        :param unit:
-        :param power:
-        """
-        self.power = power
-        self.base_unit = unit
-        # Simplify base units that are powers themselves
-        if isinstance(unit, UnitPower):
-            self.base_unit = unit.base_unit
-            self.power = power * unit.power
-        super().__init__(f'{self.base_unit.name}^{self.power}', f'{self.base_unit.dimension}^{self.power}', symbol=f'{self.base_unit.symbol}^{self.power}')
-
-    def __repr__(self):
-        return f'{self.base_unit}^{self.power}'
-
-    def __eq__(self, other):
-        if other == self.base_unit and self.power == 1:
-            return True
-        if not isinstance(other, UnitPower):
-            return False
-        return self.base_unit == other.base_unit and self.power == other.power
-
-    def __mul__(self, other):
-        if isinstance(other, UnitPower):
-            if self.base_unit is other.base_unit:
-                if self.power == -other.power:
-                    return 1
-                if self.power+other.power == 1:
-                    return self.base_unit
-                return UnitPower(self.base_unit, self.power+other.power)
-        if isinstance(other, Unit):
-            if self.base_unit is other:
-                return UnitPower(self.base_unit, self.power+1)
-        return super().__mul__(other)
-
-class UnitProduct(Unit):
-    def __init__(self, *units: Unit):
-        """
-        A product of units(ex: Joule-second).
-        :param units:
-        """
-        self.factors = list(units)
-
-        # Decompose any factors that might be themselves products
-        for u in self.factors:
-            if isinstance(u, UnitProduct):
-                self.factors.remove(u)
-                for b in u.factors:
-                    self.factors.append(b)
-
-        # Simplify powers of the same unit
-        powers = []
-        for u, i in zip_index(self.factors):
-            if isinstance(u, UnitPower):
-                powers.append((u, i))
-        removed = 0
-        for p, i in powers:
-            for q, j in powers:
-                if p.base_unit == q.base_unit and i != j:
-                    if p in self.factors:
-                        self.factors.remove(p)
-                        removed += 1
-                        self.factors[j - removed] *= p
-
-        # Simplify factors multiplied with powers
-        for u in self.factors:
-            for p, i in powers:
-                if p.base_unit == u:
-                    self.factors.remove(u)
-                    self.factors[i] *= u
-
-        # Remove dimensionless factors
-        for u, i in zip_index(self.factors):
-            if isinstance(u, int) or isinstance(u, float):
-                del self.factors[i]
-
-        # Generate names, dimensions, and symbols
-        names = [u.name for u in self.factors]
-        dims = [u.dimension for u in self.factors]
-        symbols = [u.symbol for u in self.factors]
-        super().__init__('*'.join(names), '*'.join(dims), symbol='*'.join(symbols))
-
-    def __repr__(self):
-        return '*'.join([repr(u) for u in self.factors])
-
-    def __eq__(self, other):
-        if not isinstance(other, UnitProduct):
-            return False
-        return all(s == o for s, o in zip(self.factors, other.factors))
-
-
-class Measure[V: float, U: Unit]:
-    def __init__(self, unit: Unit, value: float):
-        """
-        A physical measurement, expressed in a unit(ex: 20 feet, 14 meters, 8 Newtons).
-        :param unit:
-        :param value:
-        """
-        self.unit = unit
-        self.value = value
-
-    def __eq__(self, other):
-        return self.unit == other.unit and self.value == other.value
-
-    def __repr__(self):
-        return f'<Measure[{self.value} {self.unit.symbol}]>'
-
-    def __add__(self, other):
-        if other.unit.dimension != self.unit.dimension:
-            raise UnitError("Addition and subtraction require units of the same dimensions.")
-        return Measure(self.value+other.convert_value(self.unit), self.unit)
-
-    def __neg__(self):
-        return (-1)*self
-
-    def __sub__(self, other):
-        return self + -other
-
-    def __mul__(self, other):
-        """
-        Multiplies two measures to create a new measure with product units, or scale an existing measurement by a number(ex: 5m * 10m -> 50m^2, 3 * 4m -> 12m).
-        :param other:
-        :return:
-        """
-        if isinstance(other, float) or isinstance(other, int):
-            return Measure(self.unit, self.value*other)
-        if isinstance(other, Unit):
-            return Measure(self.unit*other, self.value)
-        return Measure(self.unit*other.unit, self.value*other.value)
-
-    def __rmul__(self, other):
-        return self * other
-
-    def __pow__(self, power):
-        """
-        Raises a measure to a power.
-        :param power:
-        :return:
-        """
-        if not isinstance(power, int):
-            return ValueError("Units can only be raised to integer powers!")
-        return Measure(self.unit**power, self.value**power)
-
-    def __truediv__(self, other):
-        """
-        Divides two measures to create a new measure with rate units, or divide an existing measurement by a number(ex: 20m/5s -> 4m/s, 15ft/3 -> 5ft).
-        :param other:
-        :return:
-        """
-        if isinstance(other, int) or isinstance(other, float):
-            return Measure(self.unit, self.value/other)
-        if isinstance(other, Unit):
-            return Measure(self.unit/other, self.value)
-        if other.unit.dimension == self.unit.dimension:
-            for m in other.unit.equal_to:
-                if m.unit is self.unit:
-                    return (self.value/other.value)*m.value
-        return Measure(self.unit/other.unit, self.value/other.value)
-
-    def __round__(self, n=None):
-        """
-        Rounds the value of the measurement to n digits.
-        :param n:
-        :return:
-        """
-        return Measure(self.unit, round(self.value, n))
-
-    def convert(self, target_unit: Unit):
-        """
-        Converts the measure into another unit(ex: 3kg -> 3000g, 24in -> 2ft). The target unit must have the same dimensions.
-        :param target_unit:
-        :return:
-        """
-        if target_unit.dimension != self.unit.dimension:
-            raise UnitError(f"Expected target unit with dimension of {self.unit.dimension}, got unit with dimension of {target_unit.dimension}.")
-        if target_unit is self.unit:
-            return self
-        for m in self.unit.equal_to:
-            if m.unit.name == target_unit.name:
-                return self.value * m.value * m.unit
-        raise UnitError("No unit conversion found.")
-
-    def convert_value(self, target_unit: Unit):
-        return self.convert(target_unit).value
-
-
-class DefinedUnit(Unit):
-    def __init__(self, name: str, *measures: Measure, symbol: Optional[str] = None):
-        """
-        A unit defined in terms of another unit(ex: foot = 0.3048 * meter).
-        :param name:
-        :param measures:
-        :param symbol:
-        """
-        # Add equivalences for easy conversion
-        for m in measures:
-            m.unit.add_equivalence(Measure(self, 1/m.value))
-        super().__init__(name, measures[0].unit.dimension, symbol=symbol, equal_to=measures)
-
-# Unit typing
-T = TypeVar('T', bound=Union[Unit, Measure])
-Dimension = Generic[T]
-Length: Type[T] = Dimension
-Time: Type[T] = Dimension
-Mass: Type[T] = Dimension
-
-Angle: Type[T] = Dimension
-
-Area: Type[T] = Dimension
-Volume: Type[T] = Dimension
-Density: Type[T] = Dimension
-Speed: Type[T] = Dimension
-Acceleration: Type[T] = Dimension
-Force: Type[T] = Dimension
-Pressure: Type[T] = Dimension
-Energy: Type[T] = Dimension
-
-
-# Angle units
-radian: Angle = Unit('radian', 'angle', symbol='rad')
-turn: Angle = DefinedUnit('turn', radian*math.tau, symbol='turn')
-degree: Angle = DefinedUnit('degree', turn*(1/360), radian*math.tau*(1/360), symbol='deg')
 
 
 class Vector2:
@@ -375,38 +78,6 @@ class Vector2:
     def to_tuple(self):
         return self.x, self.y
 
-class PhysicalVector2[T](Vector2):
-    def __init__(self, x: float, y: float, unit: Unit):
-        """
-        A physical 2D vector.
-        :param x:
-        :param y:
-        :param unit:
-        """
-        super().__init__(x, y)
-        self.unit = unit
-
-    def __add__(self, other):
-        return PhysicalVector2(self.x + other.convert(self.unit).x, self.y + other.convert(self.unit).y, self.unit)
-
-    def __mul__(self, other):
-        if isinstance(other, PhysicalVector2):
-            return super().__mul__(other.convert(self.unit))
-        return super().__mul__(other)
-
-    def __abs__(self) -> Length:
-        return super().__abs__()*self.unit
-
-    def convert(self, target_unit: Unit):
-        return PhysicalVector2((self.x*self.unit).convert_value(target_unit), (self.y*self.unit).convert_value(target_unit), target_unit)
-
-# Vector typing
-Displacement: Type[T] = PhysicalVector2[Length]
-Velocity: Type[T] = PhysicalVector2[Speed]
-AccelerationVector: Type[T] = PhysicalVector2[Acceleration]
-ForceVector: Type[T] = PhysicalVector2[Force]
-StressVector: Type[T] = PhysicalVector2[Pressure]
-
 def get_distance(pos1: Vector2, pos2: Vector2) -> float:
     """
     Gets the distance between two points.
@@ -417,7 +88,7 @@ def get_distance(pos1: Vector2, pos2: Vector2) -> float:
     return abs(pos2-pos1)
 
 
-def get_angle(pos1: Vector2, pos2: Vector2, center: Vector2 = Vector2(0, 0), unit=radian) -> float:
+def get_angle(pos1: Vector2, pos2: Vector2, center: Vector2 = Vector2(0, 0)) -> float:
     """
     Gets the angle two points make when connected to a center point.
     Unit options are rad, deg, and turns.
@@ -431,8 +102,8 @@ def get_angle(pos1: Vector2, pos2: Vector2, center: Vector2 = Vector2(0, 0), uni
     vector2 = pos2-center
     norm_prod = abs(vector1)*abs(vector2)
     dot_prod = vector1 * vector2
-    angle = math.acos(dot_prod/norm_prod) * radian
-    return angle.convert(unit)
+    angle = math.acos(dot_prod/norm_prod)
+    return angle
 
 
 class Condition:

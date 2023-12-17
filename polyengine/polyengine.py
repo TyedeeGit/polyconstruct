@@ -1,7 +1,6 @@
 import math
 
 from .metricutils import *
-from .units import *
 from typing import List
 
 __doc__ = """
@@ -10,7 +9,7 @@ Implement physics engine.
 
 
 class Material:
-    def __init__(self, material_name: str, strength: Pressure, density: Density):
+    def __init__(self, material_name: str, strength: float, density: float):
         """
         A physical material.
         :param material_name:
@@ -22,7 +21,7 @@ class Material:
 
 
 class Joint:
-    def __init__(self, pos: PhysicalVector2, material: Material, radius: Length, thickness: Length):
+    def __init__(self, pos: Vector2, material: Material, radius: float, thickness: float):
         """
         A joint that connects one or more rods.
         :param pos:
@@ -33,7 +32,7 @@ class Joint:
         self.thickness = thickness
         self.mass = math.pi * radius**2 * thickness * material.density
         self.connections: List[Rod] = []
-        self.forces: List[ForceVector] = []
+        self.forces: List[Vector2] = []
 
     def connect(self, rod):
         """
@@ -70,7 +69,7 @@ class State:
         return f'State[{self.frame}]'
 
 class Simulation:
-    def __init__(self, initial_state: State, total_time: Time, dt: Time = (1 / 60) * second):
+    def __init__(self, initial_state: State, total_time: float, dt: float = (1 / 60)):
         self.dt = dt
         self.total_time = total_time
         self.current_frame = 0
