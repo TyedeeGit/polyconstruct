@@ -78,6 +78,7 @@ class Vector2:
     def to_tuple(self):
         return self.x, self.y
 
+
 def get_distance(pos1: Vector2, pos2: Vector2) -> float:
     """
     Gets the distance between two points.
@@ -95,7 +96,6 @@ def get_angle(pos1: Vector2, pos2: Vector2, center: Vector2 = Vector2(0, 0)) -> 
     :param pos1:
     :param pos2:
     :param center:
-    :param unit:
     :return:
     """
     vector1 = pos1-center
