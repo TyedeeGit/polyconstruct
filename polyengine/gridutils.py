@@ -1,4 +1,5 @@
 import copy
+from typing import TypeVar
 
 class Cell:
     def __init__(self, position):
@@ -8,14 +9,18 @@ class Cell:
     def __repr__(self):
         return f'Cell({self.position})'
 
-class DataCell(Cell):
+T = TypeVar('T')
+
+class DataCell[T](Cell):
     def __init__(self, position, data):
         super().__init__(position)
         self.data = data
     def __repr__(self):
         return f'DataCell({self.position},{repr(self.data)})'
 
-class Grid:
+C = TypeVar('C', bound=Cell)
+
+class Grid[C]:
     """
     A grid of cells. For example:
     Grid(2, 3, DataCell, 'data') gives you a Grid object that looks like
