@@ -1,6 +1,9 @@
 import math
+from multiprocessing import Pool
 from .metricutils import *
 from .gridutils import *
+
+GRAVITY = Vector2(0, -9.8)
 
 class Material:
     def __init__(self, material_name: str, density: float, yield_strength: float, bulk_modulus: float, shear_modulus: float):
@@ -31,6 +34,9 @@ class Tensor:
         self.xy = xy
         self.yx = yx
         self.yy = yy
+
+    def __repr__(self):
+        return f'Tensor[[{self.xx}, {self.xy}], [{self.yx}, {self.yy}]]'
 
     def __add__(self, other):
         return Tensor(self.xx + other.xx, self.xy + other.xy, self.yx + other.yx, self.yy + other.yy)
@@ -213,47 +219,73 @@ class LinearElasticityPDE:
 
     def get_u_double_dot(self, i: int, j: int):
         if not self.get_material(i, j).density:
-            return Vector2(0, 0)
+            return GRAVITY
         return (tensor_divergence(self.stresses, self.dx, i, j) + self.get_external_force(i, j)) * (1/self.get_material(i, j).density)
 
     def get_u_dot(self, i: int, j: int) -> Vector2:
         return self.velocities.get_cell(i, j).data
 
-    def update_u_dot(self):
+    def update_u_dot(self, r: range = None):
+        if r is None:
+            r = range(0, int(self.total_length/self.dx))
         for column in self.velocities.cells:
             for cell in column:
-                cell.data += self.get_u_double_dot(cell.x, cell.y) * self.dt
+                if cell.x in r:
+                    if not self.get_material(cell.x, cell.y).density:
+                        cell.data = self.current_time * GRAVITY
+                        continue
+                    cell.data += self.get_u_double_dot(cell.x, cell.y) * self.dt
+        return True
 
-    def update_u(self):
-        for column in self.velocities.cells:
+    def update_u(self, r: range = None):
+        if r is None:
+            r = range(0, int(self.total_length/self.dx))
+        for column in self.displacements.cells:
             for cell in column:
-                cell.data += self.get_u_dot(cell.x, cell.y) * self.dt
+                if cell.x in r:
+                    if not self.get_material(cell.x, cell.y).density:
+                        cell.data = 0.5 * self.current_time**2 * GRAVITY
+                        continue
+                    cell.data += self.get_u_dot(cell.x, cell.y) * self.dt
+        return True
 
     def get_strain(self, i: int, j: int) -> Tensor:
         grad_u = vector_gradient(self.displacements, self.dx, i, j)
         grad_u_transpose = grad_u.transpose
         return 0.5*(grad_u + grad_u_transpose)
 
-    def update_strain(self):
+    def update_strain(self, r: range = None):
+        if r is None:
+            r = range(0, int(self.total_length/self.dx))
         for column in self.strains.cells:
             for cell in column:
-                cell.data = self.get_strain(cell.x, cell.y)
+                if cell.x in r:
+                    if not self.get_material(cell.x, cell.y).density:
+                        continue
+                    cell.data = self.get_strain(cell.x, cell.y)
+        return True
 
     def get_stress(self, i: int, j: int) -> Tensor:
-        strain = self.get_strain(i, j)
+        strain = self.strains.get_cell(i, j).data
         strain_trace = strain.trace
         lame_coefficient_1 = self.get_material(i, j).shear_modulus
         lame_coefficient_2 = self.get_material(i, j).bulk_modulus - (2/3)*lame_coefficient_1
         return 2*lame_coefficient_1*strain + lame_coefficient_2*strain_trace*Tensor.identity()
 
-    def update_stress(self):
-        for column in self.strains.cells:
+    def update_stress(self, r: range = None):
+        if r is None:
+            r = range(0, int(self.total_length/self.dx))
+        for column in self.stresses.cells:
             for cell in column:
-                cell.data = self.get_stress(cell.x, cell.y)
+                if cell.x in r:
+                    if not self.get_material(cell.x, cell.y).density:
+                        continue
+                    cell.data = self.get_stress(cell.x, cell.y)
+        return True
 
     def step(self):
-        self.update_u_dot()
         self.update_u()
+        self.update_u_dot()
         self.update_strain()
         self.update_stress()
         self.current_time += self.dt
